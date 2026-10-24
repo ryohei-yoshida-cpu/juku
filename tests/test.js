@@ -114,5 +114,22 @@ test('テスト太郎をランダム追加：連番・自動作成で違反な�
   assert.strictEqual(S.validateAll(st, '2026-11', lessons).size, 0);
 });
 
+test('高校生：高校対応の講師だけが入る・自由選択の教科', () => {
+  const st = makeState('2026-11');
+  const { lessons, unfilled } = S.generate(st, '2026-11');
+  assert.strictEqual(unfilled.length, 0, JSON.stringify(unfilled));
+  const highIds = st.students.filter(s => S.levelOf(s) === '高校').map(s => s.id);
+  assert.strictEqual(highIds.length, 3);
+  for (const l of lessons.filter(l => highIds.includes(l.studentId))) {
+    assert.ok(S.teacherLevels(st.teachers.find(t => t.id === l.teacherId)).includes('高校'), l.teacherId);
+  }
+  const yamaguchi = S.summary(st, lessons).filter(x => x.studentId === 'h2');
+  assert.deepStrictEqual(yamaguchi.map(x => x.subject), ['数学', '物理', '化学']);
+  assert.ok(yamaguchi.every(x => x.assigned === 4));
+  // 中学のみの講師に高校生を入れると警告
+  const bad = [{ id: 'x', date: '2026-11-02', period: 1, teacherId: 't4', studentId: 'h1', subject: '数学' }];
+  assert.ok(S.validateAll(st, '2026-11', bad).get('x').join().includes('高校生の指導に未対応'));
+});
+
 if (failed) { console.log(failed + ' failed'); process.exit(1); }
 console.log('all passed');

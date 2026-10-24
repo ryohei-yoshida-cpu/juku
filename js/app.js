@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const S = window.Scheduler;
-  const { SUBJECTS, COURSE_SUBJECTS, WEEKDAYS } = S;
+  const { SUBJECTS, BASIC_SUBJECTS, HIGH_SUBJECTS, GRADES, LEVELS, WEEKDAYS } = S;
   const STORAGE_KEY = 'juku-timetable-v1';
   let FRAMED = true;
   try { FRAMED = window.self !== window.top; } catch (e) { FRAMED = true; }
@@ -119,6 +119,14 @@
   }
 
   const isTest = x => /^テスト太郎/.test(x.name);
+  function courseLabel(s) {
+    if (s.course === 'free') return '自由選択';
+    return Number(s.course) === 3 ? '3科目' : '5科目';
+  }
+  function subjectChecks(selected, attr) {
+    const box = sub => `<label><input type="checkbox" ${attr}="${sub}" ${selected.includes(sub) ? 'checked' : ''}>${sub}</label>`;
+    return `<div><div>${BASIC_SUBJECTS.map(box).join(' ')}</div><div><span class="hint">高校の科目：</span>${HIGH_SUBJECTS.map(box).join(' ')}</div></div>`;
+  }
 
   // ---------- 描画 ----------
   function render() {
@@ -187,11 +195,12 @@
         ${state.teachers.some(isTest) ? `<button type="button" class="danger" data-action="del-test-teachers">テスト講師を全部消す</button>` : ''}</div>
       ${state.teachers.length ? `
       <table class="table">
-        <thead><tr><th>名前</th><th>担当教科</th><th>出勤曜日</th><th>1コマの人数</th><th>休みの日</th><th></th></tr></thead>
+        <thead><tr><th>名前</th><th>学校</th><th>担当教科</th><th>出勤曜日</th><th>1コマの人数</th><th>休みの日</th><th></th></tr></thead>
         <tbody>${state.teachers.map(t => `
           <tr>
             <td><b>${esc(t.name)}</b>${t.memo ? `<div class="hint">${esc(t.memo)}</div>` : ''}</td>
-            <td>${SUBJECTS.filter(s => t.subjects.includes(s)).map(s => `<span class="tag subj-${s}">${s}</span>`).join('')}</td>
+            <td>${S.teacherLevels(t).join('・')}</td>
+            <td>${SUBJECTS.filter(s => t.subjects.includes(s)).map(s => `<span class="tag subj-${esc(S.subjectGroup(s))}">${s}</span>`).join('')}</td>
             <td>${weekdaysSummary(t.weekly)}</td>
             <td>${t.capacity ? esc(t.capacity) + '人' : '標準（' + state.settings.capacity + '人）'}</td>
             <td>${(t.offDates || []).length ? (t.offDates || []).sort().map(d => `<span class="tag">${fmtDate(d)}</span>`).join('') : '-'}</td>
@@ -226,7 +235,7 @@
 
   function openTeacherModal(t) {
     ui.modalType = 'teacher';
-    ui.draft = t ? JSON.parse(JSON.stringify(t)) : { id: '', name: '', subjects: [], weekly: allWeekly(), offDates: [], capacity: '', memo: '' };
+    ui.draft = t ? JSON.parse(JSON.stringify(t)) : { id: '', name: '', levels: ['中学'], subjects: [], weekly: allWeekly(), offDates: [], capacity: '', memo: '' };
     renderTeacherModal();
     modal.showModal();
   }
@@ -236,7 +245,8 @@
       <h2>${t.id ? '講師を編集' : '講師を登録'}</h2>
       <div class="form-grid">
         <label for="f-name">名前</label><input type="text" id="f-name" value="${esc(t.name)}" placeholder="例：佐藤先生">
-        <span>担当教科</span><div>${SUBJECTS.map(s => `<label><input type="checkbox" data-subj="${s}" ${t.subjects.includes(s) ? 'checked' : ''}>${s}</label>`).join(' ')}</div>
+        <span>指導できる学校</span><div>${LEVELS.map(lv => `<label><input type="checkbox" data-level="${lv}" ${S.teacherLevels(t).includes(lv) ? 'checked' : ''}>${lv}生</label>`).join(' ')}</div>
+        <span>担当教科</span>${subjectChecks(t.subjects, 'data-subj')}
         <label for="f-cap">1コマの人数</label><div><input type="number" id="f-cap" min="1" max="10" value="${esc(t.capacity)}" placeholder="${state.settings.capacity}"> 人 <span class="hint">空欄なら設定の標準（${state.settings.capacity}人）</span></div>
         <span class="full-row"><b>出勤できる曜日・時限</b></span>
         <div class="full-row">${weekGridHTML(t.weekly)}</div>
@@ -252,6 +262,7 @@
     const t = ui.draft;
     t.name = $('#f-name').value.trim();
     t.subjects = SUBJECTS.filter(s => modalBody.querySelector(`[data-subj="${s}"]`).checked);
+    t.levels = LEVELS.filter(lv => modalBody.querySelector(`[data-level="${lv}"]`).checked);
     t.capacity = $('#f-cap').value;
     t.weekly = readWeekGrid();
     t.memo = $('#f-memo').value.trim();
@@ -263,7 +274,7 @@
     return `
     <section class="panel">
       <h2>生徒（${state.students.length}名）</h2>
-      <p class="hint">3科目（英・数・国）か5科目（英・数・国・理・社）を選び、来られる曜日・時限とNG講師を登録します。</p>
+      <p class="hint">中学生・高校生に対応しています。3科目（英・数・国）・5科目（英・数・国・理・社）・自由選択（物理・日本史など高校の科目も選べる）から選び、来られる曜日・時限とNG講師を登録します。</p>
       <div class="row"><button type="button" class="primary" data-action="new-student">＋ 生徒を登録</button>
         <button type="button" data-action="random-student" data-n="1">🎲 テスト生徒を1人追加</button>
         <button type="button" data-action="random-student" data-n="10">🎲 10人追加</button>
@@ -275,8 +286,8 @@
           <tr>
             <td><b>${esc(s.name)}</b>${s.memo ? `<div class="hint">${esc(s.memo)}</div>` : ''}</td>
             <td>${esc(s.grade)}</td>
-            <td>${s.course}科目</td>
-            <td>${S.subjectsOf(s).map(sub => `<span class="tag subj-${sub}">${sub.slice(0, 1)} ${S.countOf(state, s, sub)}</span>`).join('')}</td>
+            <td>${courseLabel(s)}</td>
+            <td>${S.subjectsOf(s).map(sub => `<span class="tag subj-${esc(S.subjectGroup(sub))}">${HIGH_SUBJECTS.includes(sub) ? sub : sub.slice(0, 1)} ${S.countOf(state, s, sub)}</span>`).join('')}</td>
             <td>${weekdaysSummary(s.weekly)}</td>
             <td>${(s.ngs || []).map(n => {
               const now = (!n.from || n.from <= m + '-31') && (!n.to || n.to >= m + '-01');
@@ -291,7 +302,7 @@
 
   function openStudentModal(s) {
     ui.modalType = 'student';
-    ui.draft = s ? JSON.parse(JSON.stringify(s)) : { id: '', name: '', grade: '中1', course: 5, counts: {}, weekly: allWeekly(), offDates: [], ngs: [], memo: '' };
+    ui.draft = s ? JSON.parse(JSON.stringify(s)) : { id: '', name: '', grade: '中1', course: 5, subjects: [], counts: {}, weekly: allWeekly(), offDates: [], ngs: [], memo: '' };
     renderStudentModal();
     modal.showModal();
   }
@@ -301,12 +312,15 @@
       <h2>${s.id ? '生徒を編集' : '生徒を登録'}</h2>
       <div class="form-grid">
         <label for="f-name">名前</label><input type="text" id="f-name" value="${esc(s.name)}">
-        <label for="f-grade">学年</label><select id="f-grade">${['中1', '中2', '中3'].map(g => `<option ${s.grade === g ? 'selected' : ''}>${g}</option>`).join('')}</select>
+        <label for="f-grade">学年</label><select id="f-grade" data-mchange="course">${GRADES.map(g => `<option ${s.grade === g ? 'selected' : ''}>${g}</option>`).join('')}</select>
         <span>コース</span><div>
           <label><input type="radio" name="course" value="3" ${Number(s.course) === 3 ? 'checked' : ''} data-mchange="course">3科目（英・数・国）</label>
           <label><input type="radio" name="course" value="5" ${Number(s.course) === 5 ? 'checked' : ''} data-mchange="course">5科目（英・数・国・理・社）</label>
+          <label><input type="radio" name="course" value="free" ${s.course === 'free' ? 'checked' : ''} data-mchange="course">自由に選ぶ</label>
+          ${S.levelOf(s) === '高校' && s.course !== 'free' ? '<div class="hint">高校生は「自由に選ぶ」で物理・化学・日本史などの科目を選べます</div>' : ''}
         </div>
-        <span>月の回数</span><div>${COURSE_SUBJECTS[s.course].map(sub => `<label class="tag subj-${sub}">${sub} <input type="number" min="0" max="20" data-count="${sub}" value="${esc(s.counts[sub] != null ? s.counts[sub] : '')}" placeholder="${state.settings.defaultCount}">回</label>`).join(' ')}
+        ${s.course === 'free' ? `<span>受講する教科</span><div>${subjectChecks(s.subjects || [], 'data-take')}</div>` : ''}
+        <span>月の回数</span><div>${S.subjectsOf(s).map(sub => `<label class="tag subj-${esc(S.subjectGroup(sub))}">${sub} <input type="number" min="0" max="20" data-count="${sub}" value="${esc(s.counts[sub] != null ? s.counts[sub] : '')}" placeholder="${state.settings.defaultCount}">回</label>`).join(' ')}
           <div class="hint">空欄なら標準（${state.settings.defaultCount}回）</div></div>
         <span class="full-row"><b>来られる曜日・時限</b></span>
         <div class="full-row">${weekGridHTML(s.weekly)}</div>
@@ -334,7 +348,11 @@
     const s = ui.draft;
     s.name = $('#f-name').value.trim();
     s.grade = $('#f-grade').value;
-    s.course = Number(modalBody.querySelector('[name=course]:checked').value);
+    const course = modalBody.querySelector('[name=course]:checked').value;
+    s.course = course === 'free' ? 'free' : Number(course);
+    const takes = modalBody.querySelectorAll('[data-take]');
+    if (takes.length) s.subjects = SUBJECTS.filter(sub => modalBody.querySelector(`[data-take="${sub}"]`).checked);
+    else if (s.course === 'free' && !(s.subjects || []).length) s.subjects = ['英語', '数学'];
     modalBody.querySelectorAll('[data-count]').forEach(i => {
       if (i.value === '') delete s.counts[i.dataset.count]; else s.counts[i.dataset.count] = Number(i.value);
     });
@@ -442,7 +460,7 @@
     const s = studentById(l.studentId);
     const w = warnings.get(l.id);
     const title = (s ? s.name + '（' + s.grade + '）' : '') + ' ' + l.subject + ' / ' + tName(l.teacherId) + (w ? '\n⚠ ' + w.join('\n⚠ ') : '') + (l.locked ? '\n🔒 手動で固定' : '');
-    return `<span class="lesson subj-${esc(l.subject)} ${w ? 'warn' : ''}" draggable="true" data-lesson="${l.id}" title="${esc(title)}">${l.locked ? '<span class="lock">🔒</span>' : ''}${w ? '⚠' : ''}${esc(s ? s.name : sName(l.studentId))}<small>（${esc(s ? s.grade : '')}）</small> ${esc(l.subject)}</span>`;
+    return `<span class="lesson subj-${esc(S.subjectGroup(l.subject))} ${w ? 'warn' : ''}" draggable="true" data-lesson="${l.id}" title="${esc(title)}">${l.locked ? '<span class="lock">🔒</span>' : ''}${w ? '⚠' : ''}${esc(s ? s.name : sName(l.studentId))}<small>（${esc(s ? s.grade : '')}）</small> ${esc(l.subject)}</span>`;
   }
 
   function renderDayView(lessons, warnings) {
@@ -490,17 +508,18 @@
         </select></label>
         <span class="hint">授業をドラッグして別のマスへ移動／クリックで編集・削除／マスの「＋」で追加。斜線のマスは講師のシフト外です。</span>
       </div>
-      <div class="legend">${SUBJECTS.map(s => `<span class="tag subj-${s}">${s}</span>`).join('')}<span class="tag" style="border:2px solid var(--danger)">⚠ 要確認</span><span class="tag">🔒 手動で固定</span></div>
+      <div class="legend">${BASIC_SUBJECTS.map(s => `<span class="tag subj-${esc(S.subjectGroup(s))}">${s}</span>`).join('')}<span class="tag" style="border:2px solid var(--danger)">⚠ 要確認</span><span class="tag">🔒 手動で固定</span></div>
       ${blocks || '<p class="hint">表示する日がありません</p>'}`;
   }
 
   function renderStudentView(sum) {
+    const used = SUBJECTS.filter(sub => state.students.some(s => S.subjectsOf(s).includes(sub)));
     return `
       <table class="table">
-        <thead><tr><th>生徒</th>${SUBJECTS.map(s => `<th>${s}</th>`).join('')}</tr></thead>
+        <thead><tr><th>生徒</th>${used.map(s => `<th>${s}</th>`).join('')}</tr></thead>
         <tbody>${state.students.map(s => `
-          <tr><td><b>${esc(s.name)}</b><div class="hint">${esc(s.grade)}・${s.course}科目</div></td>
-          ${SUBJECTS.map(sub => {
+          <tr><td><b>${esc(s.name)}</b><div class="hint">${esc(s.grade)}・${courseLabel(s)}</div></td>
+          ${used.map(sub => {
             const x = sum.find(r => r.studentId === s.id && r.subject === sub);
             if (!x) return '<td class="hint">-</td>';
             const cls = x.assigned < x.total ? 'short' : 'full';
@@ -522,7 +541,7 @@
           const slots = new Set(mine.map(l => l.date + '|' + l.period));
           const byDate = {};
           for (const l of mine) (byDate[l.date] = byDate[l.date] || []).push(l);
-          return `<tr><td><b>${esc(t.name)}</b><div>${t.subjects.map(s => `<span class="tag subj-${s}">${s.slice(0, 1)}</span>`).join('')}</div></td>
+          return `<tr><td><b>${esc(t.name)}</b><div>${t.subjects.map(s => `<span class="tag subj-${esc(S.subjectGroup(s))}">${s.slice(0, 1)}</span>`).join('')}</div></td>
             <td>${(shift[t.id] || []).length}コマ</td>
             <td>${mine.length}人コマ<div class="hint">（使用${slots.size}コマ）</div></td>
             <td>${new Set(mine.map(l => l.studentId)).size}人</td>
@@ -540,7 +559,7 @@
       ${shortList.length ? `<table class="table"><thead><tr><th>生徒</th><th>教科</th><th>配置</th><th>候補の空き枠</th><th></th></tr></thead><tbody>
         ${shortList.map(x => {
           const n = S.candidates(state, month(), lessons, x.studentId, x.subject).length;
-          return `<tr><td>${esc(sName(x.studentId))}</td><td><span class="tag subj-${x.subject}">${x.subject}</span></td>
+          return `<tr><td>${esc(sName(x.studentId))}</td><td><span class="tag subj-${esc(S.subjectGroup(x.subject))}">${x.subject}</span></td>
             <td class="short">${x.assigned}/${x.total}</td>
             <td>${n ? n + '枠' : '<span class="short">0枠</span> <span class="hint">来られる日時・講師シフト・NGを見直してください</span>'}</td>
             <td><button type="button" class="small" data-action="add-for" data-s="${x.studentId}" data-sub="${x.subject}">追加する</button></td></tr>`;
@@ -585,7 +604,7 @@
     modalBody.innerHTML = `
       <h2>${l._existing ? '授業を編集' : '授業を追加'}</h2>
       <div class="form-grid">
-        <label for="l-student">生徒</label><select id="l-student" data-mchange="lesson">${state.students.map(s => `<option value="${s.id}" ${s.id === l.studentId ? 'selected' : ''}>${esc(s.name)}（${esc(s.grade)}・${s.course}科目）</option>`).join('')}</select>
+        <label for="l-student">生徒</label><select id="l-student" data-mchange="lesson">${state.students.map(s => `<option value="${s.id}" ${s.id === l.studentId ? 'selected' : ''}>${esc(s.name)}（${esc(s.grade)}・${courseLabel(s)}）</option>`).join('')}</select>
         <label for="l-subject">教科</label><div><select id="l-subject" data-mchange="lesson">${subjects.map(s => `<option ${s === l.subject ? 'selected' : ''}>${s}</option>`).join('')}</select>
           ${sum ? `<span class="hint">この授業以外で ${sum.assigned}/${sum.total} 回</span>` : ''}</div>
         <label for="l-date">日付</label><select id="l-date" data-mchange="lesson">${S.monthDates(month()).map(d => {
@@ -593,7 +612,7 @@
           return `<option value="${d}" ${d === l.date ? 'selected' : ''}>${fmtDatePlain(d)}${c ? ' ※' + esc(c) : ''}</option>`;
         }).join('')}</select>
         <label for="l-period">時限</label><select id="l-period" data-mchange="lesson">${state.settings.periods.map((p, i) => `<option value="${i}" ${i === Number(l.period) ? 'selected' : ''}>${esc(p.label)}（${esc(p.start)}〜${esc(p.end)}）</option>`).join('')}</select>
-        <label for="l-teacher">講師</label><select id="l-teacher" data-mchange="lesson">${state.teachers.map(t => `<option value="${t.id}" ${t.id === l.teacherId ? 'selected' : ''}>${esc(t.name)}（${t.subjects.map(s => s.slice(0, 1)).join('')}）${t.subjects.includes(l.subject) ? '' : ' ※担当外'}${st && S.activeNG(st, t.id, l.date) ? ' ※NG' : ''}</option>`).join('')}</select>
+        <label for="l-teacher">講師</label><select id="l-teacher" data-mchange="lesson">${state.teachers.map(t => `<option value="${t.id}" ${t.id === l.teacherId ? 'selected' : ''}>${esc(t.name)}（${t.subjects.map(s => s.slice(0, 1)).join('')}）${t.subjects.includes(l.subject) ? '' : ' ※担当外'}${st && !S.teachesLevel(t, st) ? ' ※' + S.levelOf(st) + '未対応' : ''}${st && S.activeNG(st, t.id, l.date) ? ' ※NG' : ''}</option>`).join('')}</select>
         <span></span><label><input type="checkbox" id="l-locked" ${l.locked ? 'checked' : ''}> 🔒 固定（自動作成をやり直しても残す）</label>
       </div>
       ${w.length ? `<ul class="warn-list">${w.map(x => `<li>⚠ ${esc(x)}</li>`).join('')}</ul>` : '<p class="full" style="margin:8px 0">✓ 問題ありません</p>'}
@@ -938,6 +957,7 @@
     } else if (a === 'save-teacher') {
       if (!d.name) { toast('名前を入力してください'); return; }
       if (!d.subjects.length) { toast('担当教科を1つ以上選んでください'); return; }
+      if (!d.levels.length) { toast('指導できる学校（中学・高校）を選んでください'); return; }
       const isNew = !d.id;
       if (isNew) { d.id = S.newId('t'); state.teachers.push(d); }
       else state.teachers[state.teachers.findIndex(t => t.id === d.id)] = d;
@@ -947,6 +967,7 @@
       save(); modal.close(); render(); toast(isNew ? '登録しました' : '保存しました'); return;
     } else if (a === 'save-student') {
       if (!d.name) { toast('名前を入力してください'); return; }
+      if (!S.subjectsOf(d).length) { toast('受講する教科を1つ以上選んでください'); return; }
       const isNew = !d.id;
       if (isNew) { d.id = S.newId('s'); state.students.push(d); }
       else state.students[state.students.findIndex(s => s.id === d.id)] = d;
@@ -967,7 +988,7 @@
   modalBody.addEventListener('change', e => {
     const kind = e.target.dataset.mchange;
     if (kind === 'lesson') { readLessonForm(); renderLessonModal(); }
-    else if (kind === 'course') { readStudentForm(); renderStudentModal(); }
+    else if (kind === 'course' || e.target.dataset.take) { readStudentForm(); renderStudentModal(); }
   });
   modalBody.addEventListener('submit', e => e.preventDefault());
 

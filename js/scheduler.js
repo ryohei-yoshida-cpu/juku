@@ -2,8 +2,14 @@
 (function (root) {
   const JPHolidays = (typeof module !== 'undefined' && module.exports) ? require('./holidays.js') : root.JPHolidays;
 
-  const SUBJECTS = ['国語', '数学', '英語', '理科', '社会'];
+  const BASIC_SUBJECTS = ['国語', '数学', '英語', '理科', '社会'];
+  const HIGH_SUBJECTS = ['物理', '化学', '生物', '日本史', '世界史', '地理', '公民'];
+  const SUBJECTS = BASIC_SUBJECTS.concat(HIGH_SUBJECTS);
+  // 高校の科目は、色分けなどで理科・社会のなかまとして扱う
+  const SUBJECT_GROUP = { 物理: '理科', 化学: '理科', 生物: '理科', 日本史: '社会', 世界史: '社会', 地理: '社会', 公民: '社会' };
   const COURSE_SUBJECTS = { 3: ['英語', '数学', '国語'], 5: ['英語', '数学', '国語', '理科', '社会'] };
+  const GRADES = ['中1', '中2', '中3', '高1', '高2', '高3'];
+  const LEVELS = ['中学', '高校'];
   const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
   function pad(n) { return String(n).padStart(2, '0'); }
@@ -35,7 +41,16 @@
 
   function openDates(state, month) { return monthDates(month).filter(d => !closedReason(state, d)); }
 
-  function subjectsOf(student) { return COURSE_SUBJECTS[student.course] || COURSE_SUBJECTS[3]; }
+  /* course は 3（英数国）・5（英数国理社）・'free'（教科を自由に選ぶ） */
+  function subjectsOf(student) {
+    if (student.course === 'free') return SUBJECTS.filter(s => (student.subjects || []).includes(s));
+    return COURSE_SUBJECTS[student.course] || COURSE_SUBJECTS[3];
+  }
+  function subjectGroup(subject) { return SUBJECT_GROUP[subject] || subject; }
+  function levelOf(student) { return String(student.grade || '').startsWith('高') ? '高校' : '中学'; }
+  // 学校の設定がない講師（高校対応前に登録した講師）は中学のみとみなす
+  function teacherLevels(teacher) { return teacher.levels && teacher.levels.length ? teacher.levels : ['中学']; }
+  function teachesLevel(teacher, student) { return teacherLevels(teacher).includes(levelOf(student)); }
   function countOf(state, student, subject) {
     const c = student.counts && student.counts[subject];
     return (c === undefined || c === null || c === '') ? state.settings.defaultCount : Number(c);
@@ -96,6 +111,7 @@
   /* 自動配置で使う「置ける枠」の判定 */
   function canPlace(state, idx, student, subject, date, period, teacher) {
     if (!teacher.subjects.includes(subject)) return false;
+    if (!teachesLevel(teacher, student)) return false;
     if (!personAvailable(student, date, period)) return false;
     if (activeNG(student, teacher.id, date)) return false;
     if (idx.get(idx.studentSlot, student.id + '|' + date + '|' + period) > 0) return false;
@@ -236,6 +252,7 @@
       if (s) {
         const ng = t && activeNG(s, t.id, l.date);
         if (ng) w.push('NG講師' + (ng.reason ? '（' + ng.reason + '）' : ''));
+        if (t && !teachesLevel(t, s)) w.push(t.name + 'は' + levelOf(s) + '生の指導に未対応');
         if (!personAvailable(s, l.date, l.period)) w.push('生徒の都合が合わない日時');
         if (!subjectsOf(s).includes(l.subject)) w.push('受講していない教科');
         if (idx.get(idx.studentSlot, s.id + '|' + l.date + '|' + l.period) > 1) w.push('生徒が同じ時間に重複');
@@ -272,7 +289,8 @@
   }
 
   const api = {
-    SUBJECTS, COURSE_SUBJECTS, WEEKDAYS, monthDates, openDates, closedReason, subjectsOf, countOf,
+    SUBJECTS, BASIC_SUBJECTS, HIGH_SUBJECTS, COURSE_SUBJECTS, GRADES, LEVELS, WEEKDAYS,
+    subjectGroup, levelOf, teacherLevels, teachesLevel, monthDates, openDates, closedReason, subjectsOf, countOf,
     activeNG, personAvailable, buildDefaultShift, getShift, generate, validateAll, summary, candidates,
     compareLesson, newId, dow, slotKey,
   };
