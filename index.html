@@ -21,6 +21,13 @@
 </nav>
 <main id="view"></main>
 <dialog id="modal"><form method="dialog" id="modal-body"></form></dialog>
+<dialog id="confirm" class="confirm-dlg">
+  <p id="confirm-msg"></p>
+  <div class="modal-actions">
+    <button type="button" data-confirm="cancel">キャンセル</button>
+    <button type="button" class="primary" data-confirm="ok">OK</button>
+  </div>
+</dialog>
 <div id="toast" class="toast"></div>
 <script src="js/holidays.js"></script>
 <script src="js/scheduler.js"></script>

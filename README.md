@@ -25,3 +25,8 @@
 - `js/holidays.js`：日本の祝日計算
 - `js/sample.js`：サンプルデータ
 - `tests/test.js`：テスト（`node tests/test.js`）
+
+## Webページとして公開する
+
+`node tools/build-artifact.js 出力先.html` で、CSS・JSを1つにまとめたHTMLを作れます。
+埋め込み表示でも動くように、確認はブラウザのポップアップではなく画面内のダイアログで行い、書き出しは「コピー」でできるようにしています。

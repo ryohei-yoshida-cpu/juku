@@ -4,6 +4,8 @@
   const S = window.Scheduler;
   const { SUBJECTS, COURSE_SUBJECTS, WEEKDAYS } = S;
   const STORAGE_KEY = 'juku-timetable-v1';
+  let FRAMED = true;
+  try { FRAMED = window.self !== window.top; } catch (e) { FRAMED = true; }
 
   // ---------- 状態 ----------
   function thisMonth() {
@@ -402,7 +404,7 @@
         <button type="button" class="primary" data-action="generate">自動で埋める</button>
         <label><input type="checkbox" id="keep-locked" checked> 🔒（手動で直した授業）は残す</label>
         <button type="button" data-action="add-lesson">＋ 授業を手動で追加</button>
-        <button type="button" data-action="print">印刷</button>
+        ${FRAMED ? '' : '<button type="button" data-action="print">印刷</button>'}
         <button type="button" data-action="csv">CSV出力</button>
         <button type="button" class="danger" data-action="clear-schedule">この月の時間割を消す</button>
       </div>
@@ -610,11 +612,14 @@
     return `
     <section class="panel">
       <h2>データの保存・読み込み</h2>
-      <p class="hint">データはこのブラウザ内に自動保存されます。別のパソコンに移すときやバックアップには書き出しを使ってください。</p>
+      <p class="hint">データはこのブラウザ内に自動保存されます（ほかのパソコン・ほかの人とは共有されません）。別のパソコンに移すときやバックアップには書き出しを使ってください。</p>
       <div class="row">
-        <button type="button" data-action="export">JSONで書き出す</button>
-        <label class="btn">JSONを読み込む<input type="file" id="import-file" accept=".json,application/json" hidden></label>
+        <button type="button" data-action="export">書き出す</button>
+        <label class="btn">ファイルから読み込む<input type="file" id="import-file" accept=".json,application/json" hidden></label>
       </div>
+      <h3>書き出した文字を貼り付けて読み込む</h3>
+      <textarea id="import-text" rows="4" style="width:100%" placeholder="ここに書き出したデータを貼り付け"></textarea>
+      <div class="row"><button type="button" data-action="import-text">貼り付けたデータを読み込む</button></div>
     </section>
     <section class="panel">
       <h2>お試し</h2>
@@ -627,12 +632,58 @@
     </section>`;
   }
 
+  // ---------- 確認・書き出し ----------
+  const confirmDlg = $('#confirm');
+  let confirmFn = null;
+  /* 確認ダイアログ。OKなら fn を実行して保存・再描画する（confirm() は埋め込み表示で使えないため） */
+  function ask(message, fn) {
+    confirmFn = fn;
+    $('#confirm-msg').textContent = message;
+    confirmDlg.showModal();
+    return false;
+  }
+  confirmDlg.addEventListener('click', e => {
+    const b = e.target.closest('[data-confirm]');
+    if (!b) return;
+    confirmDlg.close();
+    const fn = confirmFn;
+    confirmFn = null;
+    if (b.dataset.confirm === 'ok' && fn && fn() !== false) { save(); render(); }
+  });
+  function importData(text) {
+    let data;
+    try {
+      data = JSON.parse(text);
+      if (!data.settings || !Array.isArray(data.teachers) || !Array.isArray(data.students)) throw new Error('形式が違います');
+    } catch (err) { toast('読み込めませんでした：' + err.message); return; }
+    ask('読み込んだデータで今のデータを置き換えます。よろしいですか？', () => {
+      const base = defaultState();
+      state = Object.assign(base, data, { settings: Object.assign(base.settings, data.settings) });
+      toast('読み込みました');
+    });
+  }
+  function openTextModal(title, hint, text, filename, fileText, type) {
+    ui.modalType = 'text';
+    modalBody.innerHTML = `
+      <h2>${esc(title)}</h2>
+      <p class="hint">${esc(hint)}</p>
+      <textarea id="out-text" rows="12" readonly style="width:100%;font-family:monospace;font-size:12px">${esc(text)}</textarea>
+      <div class="modal-actions">
+        ${FRAMED ? '' : '<button type="button" class="left" data-maction="download">ファイルで保存</button>'}
+        <button type="button" data-maction="close">閉じる</button>
+        <button type="button" class="primary" data-maction="copy">コピー</button>
+      </div>`;
+    ui.textOut = { filename, fileText, type };
+    modal.showModal();
+  }
+
   // ---------- 操作 ----------
   const actions = {
     'add-period'() { const n = state.settings.periods.length + 1; state.settings.periods.push({ label: n + '限', start: '', end: '' }); },
     'del-period'(el) {
-      if (!confirm('この時限を削除しますか？（講師・生徒の曜日設定の時限番号がずれる場合があります）')) return false;
-      state.settings.periods.splice(Number(el.dataset.i), 1);
+      return ask('この時限を削除しますか？（講師・生徒の曜日設定の時限番号がずれる場合があります）', () => {
+        state.settings.periods.splice(Number(el.dataset.i), 1);
+      });
     },
     'add-closed'() {
       const d = $('#closed-date').value;
@@ -645,20 +696,22 @@
     'edit-teacher'(el) { openTeacherModal(teacherById(el.dataset.id)); return false; },
     'del-teacher'(el) {
       const t = teacherById(el.dataset.id);
-      if (!confirm(t.name + ' を削除しますか？')) return false;
-      state.teachers = state.teachers.filter(x => x.id !== t.id);
-      for (const m of Object.keys(state.shifts)) delete state.shifts[m][t.id];
+      return ask(t.name + ' を削除しますか？', () => {
+        state.teachers = state.teachers.filter(x => x.id !== t.id);
+        for (const m of Object.keys(state.shifts)) delete state.shifts[m][t.id];
+      });
     },
     'new-student'() {
-      if (!state.teachers.length && !confirm('講師がまだ登録されていません。先に生徒を登録しますか？')) return false;
+      if (!state.teachers.length) return ask('講師がまだ登録されていません。先に生徒を登録しますか？', () => { openStudentModal(null); return false; });
       openStudentModal(null); return false;
     },
     'edit-student'(el) { openStudentModal(studentById(el.dataset.id)); return false; },
     'del-student'(el) {
       const s = studentById(el.dataset.id);
-      if (!confirm(s.name + ' を削除しますか？（時間割からも消えます）')) return false;
-      state.students = state.students.filter(x => x.id !== s.id);
-      for (const m of Object.keys(state.schedules)) state.schedules[m] = state.schedules[m].filter(l => l.studentId !== s.id);
+      return ask(s.name + ' を削除しますか？（時間割からも消えます）', () => {
+        state.students = state.students.filter(x => x.id !== s.id);
+        for (const m of Object.keys(state.schedules)) state.schedules[m] = state.schedules[m].filter(l => l.studentId !== s.id);
+      });
     },
     'toggle-shift'(el) {
       const shift = ensureShift();
@@ -667,24 +720,27 @@
       if (i >= 0) list.splice(i, 1); else list.push(el.dataset.key);
     },
     'rebuild-shift'() {
-      if (!confirm('講師の登録内容（曜日・休みの日）からシフトを作り直します。手で直した○×は元に戻ります。よろしいですか？')) return false;
-      state.shifts[month()] = S.buildDefaultShift(state, month());
-      toast('シフトを作り直しました');
+      return ask('講師の登録内容（曜日・休みの日）からシフトを作り直します。手で直した○×は元に戻ります。よろしいですか？', () => {
+        state.shifts[month()] = S.buildDefaultShift(state, month());
+        toast('シフトを作り直しました');
+      });
     },
     'goto-schedule'() { ui.tab = 'schedule'; },
     generate() {
       const keep = $('#keep-locked').checked;
       const cur = lessonsOf();
-      if (cur.length && !confirm(keep ? '今の時間割を作り直します（🔒の授業は残します）。よろしいですか？' : '今の時間割をすべて消して作り直します。よろしいですか？')) return false;
-      const res = S.generate(state, month(), { keepLocked: keep });
-      state.schedules[month()] = res.lessons;
-      const miss = res.unfilled.reduce((a, x) => a + x.missing, 0);
-      toast(miss ? `作成しました（${miss}コマ入りきりませんでした。「不足・警告」を確認してください）` : '作成しました。すべて入りました');
-      if (miss) ui.schedView = 'issues';
+      const run = () => {
+        const res = S.generate(state, month(), { keepLocked: keep });
+        state.schedules[month()] = res.lessons;
+        const miss = res.unfilled.reduce((a, x) => a + x.missing, 0);
+        toast(miss ? `作成しました（${miss}コマ入りきりませんでした。「不足・警告」を確認してください）` : '作成しました。すべて入りました');
+        if (miss) ui.schedView = 'issues';
+      };
+      if (!cur.length) return run();
+      return ask(keep ? '今の時間割を作り直します（🔒の授業は残します）。よろしいですか？' : '今の時間割をすべて消して作り直します。よろしいですか？', run);
     },
     'clear-schedule'() {
-      if (!confirm(month() + ' の時間割をすべて消しますか？')) return false;
-      state.schedules[month()] = [];
+      return ask(month() + ' の時間割をすべて消しますか？', () => { state.schedules[month()] = []; });
     },
     'sched-view'(el) { ui.schedView = el.dataset.v; },
     'add-lesson'() { openLessonModal(null, {}); return false; },
@@ -703,26 +759,34 @@
         rows.push([l.date, WEEKDAYS[S.dow(l.date)], periodLabel(l.period), p.start || '', p.end || '', tName(l.teacherId), s.name || '', s.grade || '', l.subject, l.locked ? '○' : '']);
       }
       const text = '﻿' + rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\r\n');
-      download('時間割_' + month() + '.csv', text, 'text/csv');
+      openTextModal('CSV出力', 'Excelやスプレッドシートに貼り付けられます。', text.slice(1), '時間割_' + month() + '.csv', text, 'text/csv');
       return false;
     },
     export() {
-      download('juku-data_' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(state, null, 2), 'application/json');
+      const json = JSON.stringify(state);
+      openTextModal('データの書き出し', 'この文字をコピーしてメモ帳などに保存しておくと、あとで「読み込み」から元に戻せます。', json, 'juku-data_' + month() + '.json', json, 'application/json');
       return false;
     },
     sample() {
-      if ((state.teachers.length || state.students.length) && !confirm('今のデータをサンプルで上書きします。よろしいですか？')) return false;
-      const s = window.makeSample(month());
-      state = defaultState();
-      state.settings.month = s.month || month();
-      state.teachers = s.teachers;
-      state.students = s.students;
-      toast('サンプルを読み込みました。「① 講師シフト」→「② 時間割」の順に進めてください');
-      ui.tab = 'shift';
+      const run = () => {
+        const s = window.makeSample(month());
+        const m = month();
+        state = defaultState();
+        state.settings.month = m;
+        state.teachers = s.teachers;
+        state.students = s.students;
+        toast('サンプルを読み込みました。「① 講師シフト」→「② 時間割」の順に進めてください');
+        ui.tab = 'shift';
+      };
+      if (!state.teachers.length && !state.students.length) return run();
+      return ask('今のデータをサンプルで上書きします。よろしいですか？', run);
+    },
+    'import-text'() {
+      importData($('#import-text').value);
+      return false;
     },
     reset() {
-      if (!confirm('すべてのデータを消します。元に戻せません。よろしいですか？')) return false;
-      state = defaultState();
+      return ask('すべてのデータを消します。元に戻せません。よろしいですか？', () => { state = defaultState(); });
     },
   };
 
@@ -758,16 +822,8 @@
     } else if (el.id === 'import-file') {
       const file = el.files[0];
       if (!file) return;
-      file.text().then(text => {
-        try {
-          const data = JSON.parse(text);
-          if (!data.settings || !Array.isArray(data.teachers) || !Array.isArray(data.students)) throw new Error('形式が違います');
-          if (!confirm('読み込んだデータで今のデータを置き換えます。よろしいですか？')) return;
-          const base = defaultState();
-          state = Object.assign(base, data, { settings: Object.assign(base.settings, data.settings) });
-          save(); render(); toast('読み込みました');
-        } catch (err) { toast('読み込めませんでした：' + err.message); }
-      });
+      file.text().then(importData);
+      el.value = '';
       return;
     } else return;
     save();
@@ -819,6 +875,13 @@
     const read = () => (type === 'teacher' ? readTeacherForm() : type === 'student' ? readStudentForm() : readLessonForm());
     const rerender = () => (type === 'teacher' ? renderTeacherModal() : type === 'student' ? renderStudentModal() : renderLessonModal());
     if (a === 'close') { modal.close(); return; }
+    if (a === 'copy') {
+      const ta = $('#out-text');
+      const fallback = () => { ta.focus(); ta.select(); toast('選択しました。Ctrl+C（⌘+C）でコピーしてください'); };
+      if (navigator.clipboard) navigator.clipboard.writeText(ta.value).then(() => toast('コピーしました'), fallback); else fallback();
+      return;
+    }
+    if (a === 'download') { download(ui.textOut.filename, ui.textOut.fileText, ui.textOut.type); return; }
     if (a === 'wk-all' || a === 'wk-none') { modalBody.querySelectorAll('[data-wk]').forEach(i => { i.checked = a === 'wk-all'; }); return; }
     read();
     const d = ui.draft;
