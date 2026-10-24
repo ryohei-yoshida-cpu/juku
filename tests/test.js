@@ -2,7 +2,7 @@
 const assert = require('assert');
 const H = require('../js/holidays.js');
 const S = require('../js/scheduler.js');
-const { makeSample } = require('../js/sample.js');
+const { makeSample, makeRandomTeacher, makeRandomStudent } = require('../js/sample.js');
 
 let failed = 0;
 function test(name, fn) {
@@ -101,6 +101,17 @@ test('手動修正のチェックで問題を検出', () => {
   assert.ok(a.includes('担当外'));
   assert.ok(a.includes('NG講師'));
   assert.ok(a.includes('重複'));
+});
+
+test('テスト太郎をランダム追加：連番・自動作成で違反なし', () => {
+  const st = makeState('2026-11');
+  for (let i = 0; i < 3; i++) st.teachers.push(makeRandomTeacher(st));
+  for (let i = 0; i < 10; i++) st.students.push(makeRandomStudent(st, '2026-11'));
+  assert.deepStrictEqual(st.teachers.slice(-3).map(t => t.name), ['テスト太郎先生1', 'テスト太郎先生2', 'テスト太郎先生3']);
+  assert.strictEqual(st.students[st.students.length - 1].name, 'テスト太郎10');
+  for (const t of st.teachers.slice(-3)) assert.ok(t.subjects.length >= 1 && t.weekly.length >= 3);
+  const { lessons } = S.generate(st, '2026-11');
+  assert.strictEqual(S.validateAll(st, '2026-11', lessons).size, 0);
 });
 
 if (failed) { console.log(failed + ' failed'); process.exit(1); }

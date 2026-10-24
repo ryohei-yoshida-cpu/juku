@@ -118,6 +118,8 @@
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
   }
 
+  const isTest = x => /^テスト太郎/.test(x.name);
+
   // ---------- 描画 ----------
   function render() {
     $('#month').value = month();
@@ -179,7 +181,10 @@
     <section class="panel">
       <h2>講師（${state.teachers.length}名）</h2>
       <p class="hint">担当できる教科と、出勤できる曜日・時限を登録します。ここで登録した曜日をもとに「① 講師シフト」が作られます。</p>
-      <div class="row"><button type="button" class="primary" data-action="new-teacher">＋ 講師を登録</button></div>
+      <div class="row"><button type="button" class="primary" data-action="new-teacher">＋ 講師を登録</button>
+        <button type="button" data-action="random-teacher" data-n="1">🎲 テスト講師を1人追加</button>
+        <button type="button" data-action="random-teacher" data-n="5">🎲 5人追加</button>
+        ${state.teachers.some(isTest) ? `<button type="button" class="danger" data-action="del-test-teachers">テスト講師を全部消す</button>` : ''}</div>
       ${state.teachers.length ? `
       <table class="table">
         <thead><tr><th>名前</th><th>担当教科</th><th>出勤曜日</th><th>1コマの人数</th><th>休みの日</th><th></th></tr></thead>
@@ -259,7 +264,10 @@
     <section class="panel">
       <h2>生徒（${state.students.length}名）</h2>
       <p class="hint">3科目（英・数・国）か5科目（英・数・国・理・社）を選び、来られる曜日・時限とNG講師を登録します。</p>
-      <div class="row"><button type="button" class="primary" data-action="new-student">＋ 生徒を登録</button></div>
+      <div class="row"><button type="button" class="primary" data-action="new-student">＋ 生徒を登録</button>
+        <button type="button" data-action="random-student" data-n="1">🎲 テスト生徒を1人追加</button>
+        <button type="button" data-action="random-student" data-n="10">🎲 10人追加</button>
+        ${state.students.some(isTest) ? `<button type="button" class="danger" data-action="del-test-students">テスト生徒を全部消す</button>` : ''}</div>
       ${state.students.length ? `
       <table class="table">
         <thead><tr><th>名前</th><th>学年</th><th>コース</th><th>月の回数</th><th>来られる曜日</th><th>NG講師</th><th></th></tr></thead>
@@ -692,6 +700,37 @@
       state.settings.closedDates.push({ date: d, label: $('#closed-label').value.trim() || '休校日' });
     },
     'del-closed'(el) { state.settings.closedDates = state.settings.closedDates.filter(c => c.date !== el.dataset.date); },
+    'random-teacher'(el) {
+      const n = Number(el.dataset.n);
+      for (let i = 0; i < n; i++) {
+        const t = window.makeRandomTeacher(state);
+        state.teachers.push(t);
+        // 作成済みのシフトがある月には、この講師のシフトも足す
+        for (const m of Object.keys(state.shifts)) state.shifts[m][t.id] = S.buildDefaultShift(state, m)[t.id];
+      }
+      toast('テスト講師を' + n + '人追加しました（教科・曜日はランダム）');
+    },
+    'random-student'(el) {
+      const n = Number(el.dataset.n);
+      for (let i = 0; i < n; i++) state.students.push(window.makeRandomStudent(state, month()));
+      toast('テスト生徒を' + n + '人追加しました（コース・曜日・NGはランダム）');
+    },
+    'del-test-teachers'() {
+      return ask('名前が「テスト太郎」の講師を全部消しますか？', () => {
+        const ids = new Set(state.teachers.filter(isTest).map(t => t.id));
+        state.teachers = state.teachers.filter(t => !ids.has(t.id));
+        for (const m of Object.keys(state.shifts)) ids.forEach(id => delete state.shifts[m][id]);
+        for (const m of Object.keys(state.schedules)) state.schedules[m] = state.schedules[m].filter(l => !ids.has(l.teacherId));
+        for (const s of state.students) s.ngs = (s.ngs || []).filter(ng => !ids.has(ng.teacherId));
+      });
+    },
+    'del-test-students'() {
+      return ask('名前が「テスト太郎」の生徒を全部消しますか？（時間割からも消えます）', () => {
+        const ids = new Set(state.students.filter(isTest).map(s => s.id));
+        state.students = state.students.filter(s => !ids.has(s.id));
+        for (const m of Object.keys(state.schedules)) state.schedules[m] = state.schedules[m].filter(l => !ids.has(l.studentId));
+      });
+    },
     'new-teacher'() { openTeacherModal(null); return false; },
     'edit-teacher'(el) { openTeacherModal(teacherById(el.dataset.id)); return false; },
     'del-teacher'(el) {

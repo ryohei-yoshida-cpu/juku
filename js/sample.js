@@ -31,6 +31,60 @@
     students[5].ngs.push({ id: 'ng2', teacherId: 't2', from: '', to: '', reason: '相性' });
     return { teachers, students };
   }
-  if (typeof module !== 'undefined' && module.exports) module.exports = { makeSample };
-  else root.makeSample = makeSample;
+
+  /* 試す用：ランダムな「テスト太郎」を作る */
+  const SUBJECTS = ['国語', '数学', '英語', '理科', '社会'];
+  function pick(arr, n) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a.slice(0, n);
+  }
+  function rand(min, max) { return min + Math.floor(Math.random() * (max - min + 1)); }
+  function randomPeriods(total, len) {
+    len = Math.min(len, total);
+    const start = rand(0, total - len);
+    return Array.from({ length: len }, (_, i) => start + i);
+  }
+  function nextNumber(list, prefix) {
+    let n = 0;
+    for (const x of list) {
+      const m = String(x.name).match(new RegExp('^' + prefix + '(\\d+)'));
+      if (m) n = Math.max(n, Number(m[1]));
+    }
+    return n + 1;
+  }
+  function uid(p) { return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+
+  function makeRandomTeacher(state) {
+    const days = state.settings.openWeekdays;
+    const P = state.settings.periods.length;
+    return {
+      id: uid('t'), name: 'テスト太郎先生' + nextNumber(state.teachers, 'テスト太郎先生'),
+      subjects: pick(SUBJECTS, rand(1, 3)),
+      weekly: weekly(pick(days, Math.min(days.length, rand(3, 5))), randomPeriods(P, rand(3, P))),
+      offDates: [], capacity: '', memo: 'テスト用',
+    };
+  }
+
+  function makeRandomStudent(state, month) {
+    const days = state.settings.openWeekdays;
+    const P = state.settings.periods.length;
+    const course = Math.random() < 0.6 ? 5 : 3;
+    const s = {
+      id: uid('s'), name: 'テスト太郎' + nextNumber(state.students, 'テスト太郎'),
+      grade: pick(['中1', '中2', '中3'], 1)[0], course, counts: {},
+      // 5科目は回数が多いので来られる曜日も多めにする
+      weekly: weekly(pick(days, Math.min(days.length, course === 5 ? rand(4, 5) : rand(3, 4))), randomPeriods(P, rand(2, 3))),
+      offDates: [], ngs: [], memo: 'テスト用',
+    };
+    if (state.teachers.length && Math.random() < 0.25) {
+      const t = pick(state.teachers, 1)[0];
+      s.ngs.push({ id: uid('ng'), teacherId: t.id, from: month + '-01', to: month + '-' + String(rand(10, 20)).padStart(2, '0'), reason: '授業中に叱られたため（テスト）' });
+    }
+    return s;
+  }
+
+  const api = { makeSample, makeRandomTeacher, makeRandomStudent };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  else Object.assign(root, api);
 })(this);
