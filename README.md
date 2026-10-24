@@ -1,5 +1,7 @@
 # 塾の時間割メーカー
 
+**すぐ使う：https://ryohei-yoshida-cpu.github.io/juku/** （ログイン不要。GitHub Pages で公開）
+
 中学生向け個別指導塾の月間時間割を作るWebアプリです。インストール不要で、`index.html` をブラウザで開くだけで使えます。データはブラウザ内（localStorage）に自動保存されます。
 
 ## 使い方
