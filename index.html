@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>塾の時間割メーカー</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="app-header no-print">
+  <h1>塾の時間割メーカー</h1>
+  <label class="month-picker">対象月 <input type="month" id="month"></label>
+</header>
+<nav class="tabs no-print" id="tabs">
+  <button data-tab="settings">設定</button>
+  <button data-tab="teachers">講師</button>
+  <button data-tab="students">生徒</button>
+  <button data-tab="shift">① 講師シフト</button>
+  <button data-tab="schedule">② 時間割（自動作成・手動修正）</button>
+  <button data-tab="data">データ</button>
+</nav>
+<main id="view"></main>
+<dialog id="modal"><form method="dialog" id="modal-body"></form></dialog>
+<div id="toast" class="toast"></div>
+<script src="js/holidays.js"></script>
+<script src="js/scheduler.js"></script>
+<script src="js/sample.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
